@@ -17,6 +17,7 @@ int i2cOpen(unsigned int address, const char* path)
     __attribute__ (( __nonnull__ (2)));
 int i2cRead(int fd, unsigned int command, unsigned int dlen, void* value);
 int i2cWrite(int fd, unsigned int command, unsigned int dlen, int value);
+int i2cDevConfigure(const char* name, const char* path, unsigned int address, unsigned int maxreg);
 
 #ifdef __cplusplus
 }
