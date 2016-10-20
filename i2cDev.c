@@ -1,9 +1,12 @@
+#define _GNU_SOURCE
 #include <glob.h>
-#include <string.h>
-#include <errno.h>
-#include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <linux/i2c.h>
@@ -14,11 +17,12 @@
 #include <regDev.h>
 #include <epicsExport.h>
 
+#include "i2cDev.h"
 
 int i2cDebug;
 epicsExportAddress(int, i2cDebug);
 
-int i2cOpenBus(const char* busname)
+int i2cOpenBus(const char* path)
 {
     glob_t globinfo;
     struct stat statinfo;
@@ -27,43 +31,43 @@ int i2cOpenBus(const char* busname)
     int fd;
     char filename[80];
     
-    if (i2cDebug) printf("i2cOpenBus(%s)\n", busname);
-    if (!busname || !busname[0])
+    if (i2cDebug) printf("i2cOpenBus(%s)\n", path);
+    if (!path || !path[0])
     {
         errno = EINVAL;
         return -1;
     }
-    /* maybe busname is a device file? */
-    if (stat(busname, &statinfo) == 0)
+    /* maybe path is a device file? */
+    if (stat(path, &statinfo) == 0)
     {
         /* file exists */
         if (S_ISCHR(statinfo.st_mode))
         {
-            if (i2cDebug) printf("i2cOpenBus: %s device major number is %d\n", busname, major(statinfo.st_rdev));
+            if (i2cDebug) printf("i2cOpenBus: %s device major number is %d\n", path, major(statinfo.st_rdev));
             if (major(statinfo.st_rdev) != 89)
             {
-                if (i2cDebug) printf("i2cOpenBus: %s is not an i2c device\n", busname);
+                if (i2cDebug) printf("i2cOpenBus: %s is not an i2c device\n", path);
                 errno = EINVAL;
                 return -1;
             }
         }
-        fd = open(busname, O_RDWR);
-        if (i2cDebug) printf("i2cOpenBus: open %s returned %d\n", busname, fd);
+        fd = open(path, O_RDWR);
+        if (i2cDebug) printf("i2cOpenBus: open %s returned %d\n", path, fd);
         if (fd >= 0) return fd;
     }
 
-    /* maybe busname is a number? */
-    busnum = strtol(busname, &p, 10);
+    /* maybe path is a number? */
+    busnum = strtol(path, &p, 10);
     if (*p == 0)
     {
         if (i2cDebug) printf("i2cOpenBus: %d is bus number\n", busnum);
     }
     if (*p != 0)
     {
-        /* maybe busname is a sysfs pattern? */
-        if (glob(busname, 0, NULL, &globinfo) != 0)
+        /* maybe path is a sysfs path? */
+        if (glob(path, 0, NULL, &globinfo) != 0)
         {
-            if (i2cDebug) printf("i2cOpenBus: %s is no valid glob pattern\n", busname);
+            if (i2cDebug) printf("i2cOpenBus: %s is no valid glob pattern\n", path);
             return -1;
         }
         if (i2cDebug) printf("i2cOpenBus: glob found %s\n", globinfo.gl_pathv[0]);
@@ -89,13 +93,35 @@ int i2cOpenBus(const char* busname)
     return fd;
 }
 
-int i2cOpen(const char* busname, unsigned int address)
+int i2cOpenFmt(unsigned int address, const char* pathformat, ...)
+{
+    int fd;
+    va_list ap;
+    
+    va_start(ap, pathformat);
+    fd = i2cOpenVar(address, pathformat, ap);
+    va_end(ap);
+    return fd;
+}
+
+int i2cOpenVar(unsigned int address, const char* pathformat, va_list ap)
+{
+    char *path;
+    int fd;
+    
+    vasprintf(&path, pathformat, ap);
+    fd = i2cOpen(address, path);
+    free(path);
+    return fd;
+}
+
+int i2cOpen(unsigned int address, const char* path)
 {
     int fd;
 
     if (i2cDebug) fprintf(stderr,
-        "i2cOpen(%s,0x%x)\n", busname, address);
-    fd = i2cOpenBus(busname);
+        "i2cOpen(%s,0x%x)\n", path, address);
+    fd = i2cOpenBus(path);
     if (fd == -1) return -1;
     if (address > 0x3f)
     {
@@ -103,7 +129,7 @@ int i2cOpen(const char* busname, unsigned int address)
         {
             if (i2cDebug) fprintf(stderr,
                 "i2cOpen(%s,0x%x): ioctl I2C_TENBIT failed\n",
-                busname, address);
+                path, address);
             close(fd);
             return -1;
         }
@@ -112,16 +138,11 @@ int i2cOpen(const char* busname, unsigned int address)
     {
         if (i2cDebug) fprintf(stderr,
             "i2cOpen(%s,0x%x): ioctl I2C_SLAVE_FORCE failed\n",
-            busname, address);
+            path, address);
         close(fd);
         return -1;
     }
     return fd;
-}
-
-int i2cClose(int fd)
-{
-    return close(fd);
 }
 
 int i2cRead(int fd, unsigned int command, unsigned int dlen, void* value)
@@ -259,17 +280,17 @@ struct regDevSupport i2cDevRegDev = {
     .write = i2cDevWrite,
 };
 
-int i2cDevConfigure(const char* name, const char* busname, unsigned int address, unsigned int maxreg)
+int i2cDevConfigure(const char* name, const char* path, unsigned int address, unsigned int maxreg)
 {
     regDevice *device = NULL;
     int fd;
     
-    if (!name || !busname || !name[0] || !busname[0])
+    if (!name || !path || !name[0] || !path[0])
     {
-        printf("usage: i2cDevConfigure name busname address [maxreg]\n");
+        printf("usage: i2cDevConfigure name path address [maxreg]\n");
         return -1;
     }
-    fd = i2cOpen(busname, address);
+    fd = i2cOpen(address, path);
     device = malloc(sizeof(regDevice));
     if (!device)
     {
