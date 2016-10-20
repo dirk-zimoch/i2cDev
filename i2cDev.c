@@ -149,6 +149,16 @@ int i2cOpen(unsigned int address, const char* path)
     return fd;
 }
 
+static char* fdname(int fd, char* buffer, int size)
+{
+    char procname[32];
+    sprintf(procname, "/proc/self/fd/%d", fd);
+    size = readlink(procname, buffer, size-1);
+    if (size < 0) return NULL;
+    buffer[size] = 0;
+    return buffer;
+}
+
 int i2cRead(int fd, unsigned int command, unsigned int dlen, void* value)
 {
     struct i2c_smbus_ioctl_data args;
@@ -165,12 +175,9 @@ int i2cRead(int fd, unsigned int command, unsigned int dlen, void* value)
     {
         if (i2cDebug)
         {
-            char procname[32];
-            char filename[32] = {0};
-            sprintf(procname, "/proc/self/fd/%d", fd);
-            readlink(procname, filename, sizeof(filename)-1);
+            char filename[32];
             fprintf(stderr, "i2cRead: ioctl(fd=%d=%s, I2C_SMBUS, {I2C_SMBUS_READ, size=%u, command=0x%x}) failed: %m\n",
-                fd, filename, args.size, args.command);
+                fd, fdname(fd, filename, sizeof(filename)), args.size, args.command);
         }
         return -1;
     }
@@ -199,12 +206,9 @@ int i2cWrite(int fd, unsigned int command, unsigned int dlen, int value)
     {
         if (i2cDebug)
         {
-            char procname[32];
-            char filename[32] = {0};
-            sprintf(procname, "/proc/self/fd/%d", fd);
-            readlink(procname, filename, sizeof(filename)-1);
+            char filename[32];
             fprintf(stderr, "i2cRead: ioctl(fd=%d=%s, I2C_SMBUS, {I2C_SMBUS_WRITE, size=%u, command=0x%x}) failed: %m\n",
-                fd, filename, args.size, args.command);
+                fd, fdname(fd, filename, sizeof(filename)), args.size, args.command);
         }
         return -1;
     }
@@ -214,7 +218,14 @@ int i2cWrite(int fd, unsigned int command, unsigned int dlen, int value)
 struct regDevice
 {
     int fd;
+    unsigned int addr;
 };
+
+void i2cDevReport(regDevice *device, int level)
+{
+    char filename[32];
+    printf("i2c %s 0x%02x\n", fdname(device->fd, filename, sizeof(filename)), device->addr);
+}
 
 int i2cDevRead(
     regDevice *device,
@@ -280,6 +291,7 @@ int i2cDevWrite(
 }
 
 struct regDevSupport i2cDevRegDev = {
+    .report = i2cDevReport,
     .read = i2cDevRead,
     .write = i2cDevWrite,
 };
@@ -302,6 +314,7 @@ int i2cDevConfigure(const char* name, const char* path, unsigned int address, un
         goto fail;
     }
     device->fd = fd;
+    device->addr = address;
     if (regDevRegisterDevice(name, &i2cDevRegDev, device, maxreg ? maxreg + 1 : 0) != SUCCESS)
     {
         perror("regDevRegisterDevice() failed");
