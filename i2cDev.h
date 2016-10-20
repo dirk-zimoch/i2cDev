@@ -1,5 +1,8 @@
 #ifndef i2cDev_h
 #define i2cDev_h
+
+#include <stdarg.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
