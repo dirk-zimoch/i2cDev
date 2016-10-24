@@ -29,7 +29,7 @@ int i2cOpenBus(const char* path)
     char* p;
     int busnum;
     int fd;
-    char filename[80];
+    char filename[32];
     
     if (i2cDebug) printf("i2cOpenBus(%s)\n", path);
     if (!path || !path[0])
@@ -46,7 +46,7 @@ int i2cOpenBus(const char* path)
             if (i2cDebug) printf("i2cOpenBus: %s device major number is %d\n", path, major(statinfo.st_rdev));
             if (major(statinfo.st_rdev) != 89)
             {
-                if (i2cDebug) printf("i2cOpenBus: %s is not an i2c device\n", path);
+                if (i2cDebug>=0) printf("i2cOpenBus: %s is not an i2c device\n", path);
                 errno = EINVAL;
                 return -1;
             }
@@ -68,7 +68,7 @@ int i2cOpenBus(const char* path)
         int status = glob(path, GLOB_BRACE|GLOB_TILDE, NULL, &globinfo);
         if (status == GLOB_NOMATCH)
         {
-            if (i2cDebug) printf("i2cOpenBus: %s is no valid glob pattern\n", path);
+            if (i2cDebug>=0) printf("i2cOpenBus: %s is no valid glob pattern\n", path);
             errno = ENOENT;
             return -1;
         }
@@ -78,7 +78,7 @@ int i2cOpenBus(const char* path)
         p = strstr(globinfo.gl_pathv[0], "/i2c-");
         if (!p)
         {
-            if (i2cDebug) printf("i2cOpenBus: no /i2c- found in %s\n", globinfo.gl_pathv[0]);
+            if (i2cDebug>=0) printf("i2cOpenBus: no /i2c- found in %s\n", globinfo.gl_pathv[0]);
             return -1;
         }
         p+=5;
@@ -131,7 +131,7 @@ int i2cOpen(unsigned int address, const char* path)
     {
         if (ioctl(fd, I2C_TENBIT, 1))
         {
-            if (i2cDebug) fprintf(stderr,
+            if (i2cDebug>=0) fprintf(stderr,
                 "i2cOpen(%s,0x%x): ioctl I2C_TENBIT failed\n",
                 path, address);
             close(fd);
@@ -140,11 +140,17 @@ int i2cOpen(unsigned int address, const char* path)
     }   
     if (ioctl(fd, I2C_SLAVE_FORCE, address) < 0)
     {
-        if (i2cDebug) fprintf(stderr,
+        if (i2cDebug>=0) fprintf(stderr,
             "i2cOpen(%s,0x%x): ioctl I2C_SLAVE_FORCE failed\n",
             path, address);
         close(fd);
         return -1;
+    }
+    if (ioctl(fd, I2C_TIMEOUT, 100) < 0)
+    {
+        if (i2cDebug>=0) fprintf(stderr,
+            "i2cOpen(%s,0x%x): ioctl I2C_TIMEOUT failed\n",
+            path, address);
     }
     return fd;
 }
@@ -173,18 +179,25 @@ int i2cRead(int fd, unsigned int command, unsigned int dlen, void* value)
     args.command = command;
     if (ioctl(fd, I2C_SMBUS, &args) < 0)
     {
-        if (i2cDebug)
-        {
-            char filename[32];
-            fprintf(stderr, "i2cRead: ioctl(fd=%d=%s, I2C_SMBUS, {I2C_SMBUS_READ, size=%u, command=0x%x}) failed: %m\n",
-                fd, fdname(fd, filename, sizeof(filename)), args.size, args.command);
-        }
+        if (i2cDebug>=0) fprintf(stderr,
+            "i2cRead: ioctl(fd=%d, I2C_SMBUS, {I2C_SMBUS_READ, size=%u, command=0x%x}) failed: %m\n",
+            fd, args.size, args.command);
         return -1;
     }
     if (dlen == 1)
+    {
+        if (i2cDebug) fprintf(stderr,
+            "i2cRead: (fd=%d,command=0x%x,den=%u) got byte 0x%02x\n",
+            fd, command, dlen, data.byte);
         *((epicsUInt8*) value) = data.byte;
-    else 
+    }
+    else
+    {
+        if (i2cDebug) fprintf(stderr,
+            "i2cRead: (fd=%d,command=0x%x,den=%u) got word 0x%04x\n",
+            fd, command, dlen, data.word);
         *((epicsUInt16*) value) = data.word;
+    }
     return 0;
 }
 
@@ -204,12 +217,9 @@ int i2cWrite(int fd, unsigned int command, unsigned int dlen, int value)
     if (dlen == 2) data.word = value;
     if (ioctl(fd, I2C_SMBUS, &args) < 0)
     {
-        if (i2cDebug)
-        {
-            char filename[32];
-            fprintf(stderr, "i2cRead: ioctl(fd=%d=%s, I2C_SMBUS, {I2C_SMBUS_WRITE, size=%u, command=0x%x}) failed: %m\n",
-                fd, fdname(fd, filename, sizeof(filename)), args.size, args.command);
-        }
+        if (i2cDebug>=0) fprintf(stderr,
+            "i2cRead: ioctl(fd=%d, I2C_SMBUS, {I2C_SMBUS_WRITE, size=%u, command=0x%x}) failed: %m\n",
+            fd, args.size, args.command);
         return -1;
     }
     return 0;
@@ -242,7 +252,8 @@ int i2cDevRead(
     if (dlen == 0) return 0; /* any way to check online status ? */
     if (dlen > 2)
     {
-        if (i2cDebug) fprintf(stderr, "%s %s: only 1 or 2 bytes supported\n", user, regDevName(device));
+        if (i2cDebug>=0) fprintf(stderr,
+            "%s %s: only 1 or 2 bytes supported\n", user, regDevName(device));
         return -1;
     }
     for (i = 0; i < nelem; i++)
@@ -270,7 +281,8 @@ int i2cDevWrite(
     
     if (dlen > 2)
     {
-        if (i2cDebug) fprintf(stderr, "%s %s: only 1 or 2 bytes supported\n", user, regDevName(device));
+        if (i2cDebug>=0) fprintf(stderr,
+            "%s %s: only 1 or 2 bytes supported\n", user, regDevName(device));
         return -1;
     }
     for (i = 0; i < nelem; i++)
