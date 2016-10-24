@@ -234,7 +234,7 @@ struct regDevice
 void i2cDevReport(regDevice *device, int level)
 {
     char filename[32];
-    printf("i2c %s 0x%02x\n", fdname(device->fd, filename, sizeof(filename)), device->addr);
+    printf("i2c fd %d %s, addr0x%02x\n", device->fd, fdname(device->fd, filename, sizeof(filename)), device->addr);
 }
 
 int i2cDevRead(
