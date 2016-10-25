@@ -15,6 +15,8 @@
 #include "i2c.h"
 #include "i2cDev.h"
 
+int i2cDebug;
+
 int i2cOpenBus(const char* path)
 {
     glob_t globinfo;
