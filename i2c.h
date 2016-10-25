@@ -1,5 +1,5 @@
-#ifndef i2cDev_h
-#define i2cDev_h
+#ifndef i2c_h
+#define i2c_h
 
 #ifdef __cplusplus
 extern "C" {
