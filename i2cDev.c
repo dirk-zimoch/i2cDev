@@ -27,10 +27,9 @@ void i2cDevReport(regDevice *device, int level)
     int n;
     char filename[32];
     sprintf(filename, "/proc/self/fd/%d", device->fd);
-    n = readlink(filename, filename, sizeof(filename-1));
+    n = readlink(filename, filename, sizeof(filename)-1);
     if (n < 0) n = 0;
-    filename[n] = 0;
-    printf("i2c fd %d %s, addr0x%02x\n", device->fd, filename, device->addr);
+    printf("i2c fd=%d %.*s addr=0x%02x\n", device->fd, n, filename, device->addr);
 }
 
 int i2cDevRead(
