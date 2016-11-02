@@ -63,7 +63,7 @@ int i2cDevRead(
     if (dlen == 0) return 0; /* any way to check online status ? */
     if (dlen > 2)
     {
-        if (i2cDebug>=0) fprintf(stderr,
+        if (i2cDebug >= 0) fprintf(stderr,
             "%s %s: only 1 or 2 bytes supported\n", user, regDevName(device));
         return -1;
     }
@@ -102,7 +102,7 @@ int i2cDevWrite(
     
     if (dlen > 2)
     {
-        if (i2cDebug>=0) fprintf(stderr,
+        if (i2cDebug >= 0) fprintf(stderr,
             "%s %s: only 1 or 2 bytes supported\n", user, regDevName(device));
         return -1;
     }
