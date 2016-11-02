@@ -5,7 +5,7 @@
 extern "C" {
 #endif
 
-int i2cDevConfigure(const char* name, const char* path, unsigned int device, unsigned int maxreg);
+int i2cDevConfigure(const char* name, const char* path, unsigned int device, const char* muxes);
 
 #ifdef __cplusplus
 }
