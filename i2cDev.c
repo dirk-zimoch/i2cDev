@@ -43,7 +43,7 @@ void i2cDevReport(regDevice *device, int level)
         int n;
         printf(" mux:");
         for (n = 0; n < device->nmux; n++)
-            printf(" 0x%02x=0x%02x", device->mux[n].addr, device->mux[n].cmd);
+            printf("%s0x%02x=0x%02x", n ? "," : "", device->mux[n].addr, device->mux[n].cmd);
     }
     printf("\n");
 }
