@@ -6,8 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <sys/stat.h>
 
 #include <epicsTypes.h>
+#include <epicsMutex.h>
 #include <iocsh.h>
 #include <regDev.h>
 #include <epicsExport.h>
@@ -16,20 +18,34 @@
 
 epicsExportAddress(int, i2cDebug);
 
-struct regDevice
+struct mux
 {
     int fd;
-    unsigned int addr;
+    unsigned char addr;
+    unsigned char cmd;
+};
+
+struct regDevice
+{
+    epicsMutexId buslock;
+    int fd;
+    unsigned char busnum;
+    unsigned char addr;
+    unsigned char nmux;
+    struct mux mux[0];
 };
 
 void i2cDevReport(regDevice *device, int level)
 {
-    int n;
-    char filename[32];
-    sprintf(filename, "/proc/self/fd/%d", device->fd);
-    n = readlink(filename, filename, sizeof(filename)-1);
-    if (n < 0) n = 0;
-    printf("i2c fd=%d %.*s addr=0x%02x\n", device->fd, n, filename, device->addr);
+    printf("i2c-%u:0x%02x", device->busnum, device->addr);
+    if (device->nmux)
+    {
+        int n;
+        printf(" mux:");
+        for (n = 0; n < device->nmux; n++)
+            printf(" 0x%02x=0x%02x", device->mux[n].addr, device->mux[n].cmd);
+    }
+    printf("\n");
 }
 
 int i2cDevRead(
@@ -51,13 +67,23 @@ int i2cDevRead(
             "%s %s: only 1 or 2 bytes supported\n", user, regDevName(device));
         return -1;
     }
+    epicsMutexLock(device->buslock);
+    for (i = 0; i < device->nmux; i++)
+    {
+        if (i2cWrite(device->mux[i].fd, device->mux[i].cmd, 0, 0) != 0)
+           goto fail;
+    }
     for (i = 0; i < nelem; i++)
     {
         if (i2cRead(device->fd, offset + i, dlen, pdata) != 0)
-            return -1;
+            goto fail;
         pdata = (void*) (((size_t) pdata) + dlen);
     }
+    epicsMutexUnlock(device->buslock);
     return 0;
+fail:
+    epicsMutexUnlock(device->buslock);
+    return -1;
 }
 
 int i2cDevWrite(
@@ -80,6 +106,12 @@ int i2cDevWrite(
             "%s %s: only 1 or 2 bytes supported\n", user, regDevName(device));
         return -1;
     }
+    epicsMutexLock(device->buslock);
+    for (i = 0; i < device->nmux; i++)
+    {
+        if (i2cWrite(device->mux[i].fd, device->mux[i].cmd, 0, 0) != 0)
+            goto fail;
+    }
     for (i = 0; i < nelem; i++)
     {
         switch (dlen)
@@ -92,9 +124,13 @@ int i2cDevWrite(
                 break;
         }
         if (i2cWrite(device->fd, offset + i, dlen, value) != 0)
-            return -1;
+            goto fail;
     }
+    epicsMutexUnlock(device->buslock);
     return 0;
+fail:
+    epicsMutexUnlock(device->buslock);
+    return -1;
 }
 
 struct regDevSupport i2cDevRegDev = {
@@ -103,32 +139,64 @@ struct regDevSupport i2cDevRegDev = {
     .write = i2cDevWrite,
 };
 
-int i2cDevConfigure(const char* name, const char* path, unsigned int address, unsigned int maxreg)
+static epicsMutexId fdlocks[256];
+
+int i2cDevConfigure(const char* name, const char* path, unsigned int address, const char* muxes)
 {
+    struct stat statinfo;
     regDevice *device = NULL;
-    int fd;
+    int nmux = 0, n = 0;
+    unsigned char muxid[255], muxcmd[255];
     
-    if (!name || !path || !name[0] || !path[0])
+    if (!name || !name[0] || !path || !path[0])
     {
         printf("usage: i2cDevConfigure name path device [maxreg]\n");
         return -1;
     }
-    fd = i2cOpen(path, address);
-    device = malloc(sizeof(regDevice));
+    if (muxes)
+    {
+        printf("muxes: %s\n", muxes);
+        while (nmux < 255 && sscanf(muxes+=n, "%hhi =%hhi%n%*[, ]%n", &muxid[nmux], &muxcmd[nmux], &n, &n) >= 2)
+        {
+            printf("mux %i: 0x%02x = 0x%02x n=%i rest %s\n", nmux, muxid[nmux], muxcmd[nmux], n, muxes+n);
+            nmux++;
+        }
+    }
+    
+    device = calloc(1, sizeof(regDevice) + nmux * sizeof(struct mux));
     if (!device)
     {
         perror("malloc regDevice");
-        close(fd);
         return -1;
     }
-    device->fd = fd;
+    device->nmux = nmux;    
     device->addr = address;
-    if (regDevRegisterDevice(name, &i2cDevRegDev, device, maxreg ? maxreg + 1 : 0) != SUCCESS)
+    device->fd = i2cOpen(path, address);
+    if (device->fd == -1) goto fail;
+    
+    for (n = 0; n < device->nmux; n++)
+    {
+        device->mux[n].addr = muxid[n];
+        device->mux[n].cmd = muxcmd[n];
+        device->mux[n].fd = i2cOpen(path, muxid[n]);
+        if (device->mux[n].fd < 0) goto fail;
+    }
+    fstat(device->fd, &statinfo);
+    device->busnum = minor(statinfo.st_rdev);
+    if (!fdlocks[device->busnum])
+    {
+        fdlocks[device->busnum] = epicsMutexCreate();
+        if (!fdlocks[device->busnum])
+        {
+            perror("epicsMutexCreate() failed");
+            goto fail;
+        }
+    }
+    device->buslock = fdlocks[device->busnum];
+    if (regDevRegisterDevice(name, &i2cDevRegDev, device, 0) != SUCCESS)
     {
         perror("regDevRegisterDevice() failed");
-        close(fd);
-        free(device);
-        return -1;
+        goto fail;
     }
     if (regDevInstallWorkQueue(device, 100) != SUCCESS)
     {
@@ -136,6 +204,15 @@ int i2cDevConfigure(const char* name, const char* path, unsigned int address, un
         return -1;
     }
     return 0;
+fail:
+    if (device->fd > 0)
+        close(device->fd);
+    for (n = 0; n < device->nmux; n++)
+    {
+        if (device->mux[n].fd > 0)
+            close(device->mux[n].fd);
+    }
+    free(device);
     return -1;
 }
 
@@ -144,12 +221,12 @@ static const iocshFuncDef i2cDevConfigureDef =
     &(iocshArg) { "name", iocshArgString },
     &(iocshArg) { "bus", iocshArgString },
     &(iocshArg) { "device", iocshArgInt },
-    &(iocshArg) { "maxreg", iocshArgInt },
+    &(iocshArg) { "muxdev=val ...", iocshArgString },
 }};
 
 static void i2cDevConfigureFunc(const iocshArgBuf *args)
 {
-    i2cDevConfigure(args[0].sval, args[1].sval, args[2].ival, args[3].ival);
+    i2cDevConfigure(args[0].sval, args[1].sval, args[2].ival, args[3].sval);
 }
 
 static void i2cRegistrar(void)
