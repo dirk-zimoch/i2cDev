@@ -225,7 +225,7 @@ static const iocshFuncDef i2cDevConfigureDef =
 static void i2cDevConfigureFunc(const iocshArgBuf *args)
 {
     char* muxes = NULL;
-    if (args[3].aval.ac)
+    if (args[3].aval.ac > 1)
     {
         int i, l = 1;
         for (i = 1; i < args[3].aval.ac; i++)
