@@ -155,12 +155,10 @@ int i2cDevConfigure(const char* name, const char* path, unsigned int address, co
     }
     if (muxes)
     {
-        printf("muxes: %s\n", muxes);
         while (nmux < 255 && sscanf(muxes+=n, "%hhi =%hhi%n%*[, ]%n", &muxid[nmux], &muxcmd[nmux], &n, &n) >= 2)
-        {
-            printf("mux %i: 0x%02x = 0x%02x n=%i rest %s\n", nmux, muxid[nmux], muxcmd[nmux], n, muxes+n);
             nmux++;
-        }
+        if (*muxes != 0)
+            fprintf(stderr, "rubish at end of line: %s\n", muxes);
     }
     
     device = calloc(1, sizeof(regDevice) + nmux * sizeof(struct mux));
@@ -221,12 +219,24 @@ static const iocshFuncDef i2cDevConfigureDef =
     &(iocshArg) { "name", iocshArgString },
     &(iocshArg) { "bus", iocshArgString },
     &(iocshArg) { "device", iocshArgInt },
-    &(iocshArg) { "muxdev=val ...", iocshArgString },
+    &(iocshArg) { "muxdev=val ...", iocshArgArgv },
 }};
 
 static void i2cDevConfigureFunc(const iocshArgBuf *args)
 {
-    i2cDevConfigure(args[0].sval, args[1].sval, args[2].ival, args[3].sval);
+    char* muxes = NULL;
+    if (args[3].aval.ac)
+    {
+        int i, l = 1;
+        for (i = 1; i < args[3].aval.ac; i++)
+            l += strlen(args[3].aval.av[i])+1;
+        muxes = malloc(l);
+        l = 0;
+        for (i = 1; i < args[3].aval.ac; i++)
+            l += sprintf(muxes + l, "%s ", args[3].aval.av[i]);
+    }
+    i2cDevConfigure(args[0].sval, args[1].sval, args[2].ival, muxes);
+    free(muxes);
 }
 
 static void i2cRegistrar(void)
