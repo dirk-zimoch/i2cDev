@@ -170,7 +170,11 @@ int i2cDevConfigure(const char* name, const char* path, unsigned int address, co
     device->nmux = nmux;    
     device->addr = address;
     device->fd = i2cOpen(path, address);
-    if (device->fd == -1) goto fail;
+    if (device->fd == -1)
+    {
+        perror("i2cOpen() failed");
+        goto fail;
+    }
     
     for (n = 0; n < device->nmux; n++)
     {

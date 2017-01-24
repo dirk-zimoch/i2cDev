@@ -60,7 +60,7 @@ int i2cOpenBus(const char* path)
     if (*p != 0)
     {
         /* maybe path is a sysfs path? */
-        int status = glob(path, 0, NULL, &globinfo);
+        int status = glob(path, GLOB_BRACE, NULL, &globinfo);
         if (status == GLOB_NOMATCH)
         {
             if (i2cDebug >= 0) printf("i2cOpenBus: %s is no valid glob pattern\n", path);
