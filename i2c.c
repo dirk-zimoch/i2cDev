@@ -157,14 +157,14 @@ int i2cRead(int fd, unsigned int command, unsigned int dlen, void* value)
     if (dlen == 1)
     {
         if (i2cDebug > 0) fprintf(stderr,
-            "i2cRead(fd=%d (%d-0x%02x), command=0x%x, den=%u) 0x%02x\n",
+            "i2cRead(fd=%d (%d-0x%02x), command=0x%x, dlen=%u bytes) 0x%02x\n",
             fd, devinfo[fd].bus, devinfo[fd].dev, command, dlen, data.byte);
         *((uint8_t*) value) = data.byte;
     }
     else
     {
         if (i2cDebug > 0) fprintf(stderr,
-            "i2cRead(fd=%d (%d-0x%02x), command=0x%x, den=%u) 0x%04x\n",
+            "i2cRead(fd=%d (%d-0x%02x), command=0x%x, dlen=%u bytes) 0x%04x\n",
             fd, devinfo[fd].bus, devinfo[fd].dev, command, dlen, data.word);
         *((uint16_t*) value) = data.word;
     }
@@ -184,14 +184,14 @@ int i2cWrite(int fd, unsigned int command, unsigned int dlen, int value)
     {
         data.byte = value;
         if (i2cDebug > 0) fprintf(stderr,
-            "i2cWrite(fd=%d (%d-0x%02x), command=0x%x, den=%u, value=0x%02x)\n",
+            "i2cWrite(fd=%d (%d-0x%02x), command=0x%x, dlen=%u bytes, value=0x%02x)\n",
             fd, devinfo[fd].bus, devinfo[fd].dev, command, dlen, data.byte);
     }
     if (dlen == 2)
     {
         data.word = value;
         if (i2cDebug > 0) fprintf(stderr,
-            "i2cWrite(fd=%d (%d-0x%02x), command=0x%x, den=%u, value=0x%04x)\n",
+            "i2cWrite(fd=%d (%d-0x%02x), command=0x%x, dlen=%u bytes, value=0x%04x)\n",
             fd, devinfo[fd].bus, devinfo[fd].dev, command, dlen, data.word);
     }
     if (ioctl(fd, I2C_SMBUS, &args) < 0)
