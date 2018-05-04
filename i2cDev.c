@@ -58,7 +58,7 @@ int i2cDevRead(
     regDevTransferComplete callback,
     const char* user)
 {
-    int i;
+    size_t i;
     
     if (dlen == 0) return 0; /* any way to check online status ? */
     if (dlen > 2)
@@ -97,7 +97,7 @@ int i2cDevWrite(
     regDevTransferComplete callback,
     const char* user)
 {
-    int i;
+    size_t i;
     int value = 0;
     
     if (dlen > 2)
@@ -145,7 +145,7 @@ int i2cDevConfigure(const char* name, const char* path, unsigned int address, co
 {
     struct stat statinfo;
     regDevice *device = NULL;
-    int nmux = 0, n = 0;
+    unsigned int nmux = 0, n = 0;
     unsigned char muxid[255], muxcmd[255];
     
     if (!name || !name[0] || !path || !path[0])
@@ -155,7 +155,7 @@ int i2cDevConfigure(const char* name, const char* path, unsigned int address, co
     }
     if (muxes)
     {
-        while (nmux < 255 && sscanf(muxes+=n, "%hhi =%hhi%n%*[, ]%n", &muxid[nmux], &muxcmd[nmux], &n, &n) >= 2)
+        while (nmux < 255 && sscanf(muxes+=n, "%hhu =%hhu%n%*[, ]%n", &muxid[nmux], &muxcmd[nmux], &n, &n) >= 2)
             nmux++;
         if (*muxes != 0)
             fprintf(stderr, "rubish at end of line: %s\n", muxes);
