@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 
 #include <epicsTypes.h>
 #include <epicsMutex.h>
