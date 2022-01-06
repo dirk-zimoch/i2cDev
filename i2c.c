@@ -30,10 +30,10 @@ int i2cOpenBus(const char* path)
     int busnum;
     int fd;
     char filename[32];
-    
+
     if (!devinfo)
         devinfo = (struct devinfo_t*)calloc(sysconf(_SC_OPEN_MAX)+1, sizeof(struct devinfo_t))+1; /* allow index -1 */
-    
+
     if (i2cDebug > 0) printf("i2cOpenBus(%s)\n", path);
     if (!path || !path[0])
     {
@@ -110,7 +110,7 @@ int i2cOpen(const char* path, unsigned int address)
         "i2cOpen(%s,0x%x)\n", path, address);
     fd = i2cOpenBus(path);
     if (fd < 0) return fd;
-    if (address > 0x3f)
+    if (address > 0x77) /* in 7-bit addressing only range from 0x03 to 0x77 is allowed */
     {
         if (ioctl(fd, I2C_TENBIT, 1))
         {
@@ -120,7 +120,17 @@ int i2cOpen(const char* path, unsigned int address)
             close(fd);
             return -1;
         }
-    }   
+    }
+    else
+    {
+        if (address < 0x03) /* in 7-bit addressing 0x00, 0x01, 0x02 are reserved */
+        {
+            if (i2cDebug >= 0) fprintf(stderr,
+                "i2cOpen(%s,0x%x): Reserved address used\n", path, address);
+            close(fd);
+            return -1;
+        }
+    }
     if (ioctl(fd, I2C_SLAVE_FORCE, address) < 0)
     {
         if (i2cDebug >= 0) fprintf(stderr,
@@ -143,7 +153,7 @@ int i2cRead(int fd, unsigned int command, unsigned int dlen, void* value)
 {
     struct i2c_smbus_ioctl_data args;
     union i2c_smbus_data data;
-    
+
     args.read_write = I2C_SMBUS_READ;
     args.size = 1 + dlen;
     args.data = &data;
