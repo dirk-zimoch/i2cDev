@@ -100,13 +100,27 @@ int i2cDevWrite(
 {
     size_t i;
     int value = 0;
-    
+    int mask = 0;
+
     if (dlen > 2)
     {
         if (i2cDebug >= 0) fprintf(stderr,
             "%s %s: only 1 or 2 bytes supported\n", user, regDevName(device));
         return -1;
     }
+    if (pmask)
+    {
+        switch (dlen)
+        {
+            case 1:
+                mask = *(epicsUInt8*) pmask;
+                break;
+            case 2:
+                mask = *(epicsUInt16*) pmask;
+                break;
+        }
+    }
+
     epicsMutexLock(device->buslock);
     for (i = 0; i < device->nmux; i++)
     {
@@ -119,9 +133,23 @@ int i2cDevWrite(
         {
             case 1:
                 value = ((epicsUInt8*) pdata)[i];
+                if (pmask)
+                {
+                    epicsUInt8 oldval;
+                    if (i2cRead(device->fd, offset + i, dlen, &oldval) != 0)
+                        goto fail;
+                    value = (value & mask) | (oldval & ~mask);
+                }
                 break;
             case 2:
                 value = ((epicsUInt16*) pdata)[i];
+                if (pmask)
+                {
+                    epicsUInt16 oldval;
+                    if (i2cRead(device->fd, offset + i, dlen, &oldval) != 0)
+                        goto fail;
+                    value = (value & mask) | (oldval & ~mask);
+                }
                 break;
         }
         if (i2cWrite(device->fd, offset + i, dlen, value) != 0)
