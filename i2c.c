@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <ctype.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/ioctl.h>
@@ -21,6 +22,8 @@
 int i2cDebug = -1;
 
 struct devinfo_t { short bus; short dev; } *devinfo;
+
+static int i2cMajor = 0;
 
 int i2cOpenBus(const char* path)
 {
@@ -43,10 +46,47 @@ int i2cOpenBus(const char* path)
     /* maybe path is a device file? */
     if (stat(path, &statinfo) == 0 && S_ISCHR(statinfo.st_mode))
     {
-        if (i2cDebug > 0) printf("i2cOpenBus: %s device major number is %d\n", path, major(statinfo.st_rdev));
-        if (major(statinfo.st_rdev) != 89)
+        if (!i2cMajor)
         {
-            if (i2cDebug >= 0) printf("i2cOpenBus: %s is not an i2c device\n", path);
+            FILE* file = fopen("/proc/devices", "r");
+
+            if (!file) {
+                /* cannot read /proc/devices, thus cannot check major device number */
+                if (i2cDebug > 0)
+                    printf("i2cOpenBus: error opening /proc/devices for i2c device number: %m\n");
+                i2cMajor = -1;
+            }
+            else
+            {
+                char linebuffer[32];
+                char* dev_name;
+                long number;
+                while (fgets(linebuffer, sizeof(linebuffer), file))
+                {
+                    number = strtol(linebuffer, &dev_name, 10);
+                    while (isblank((int)*dev_name)) dev_name++;
+                    if (dev_name && strcmp("i2c\n", dev_name) == 0)
+                    {
+                        i2cMajor = number;
+                        if (i2cDebug > 0)
+                            printf("i2cOpenBus: found i2c major device number: %d\n", i2cMajor);
+                        break;
+                    }
+                }
+                fclose(file);
+            }
+            if (!i2cMajor)
+            {
+                if (i2cDebug >= 0)
+                    printf("i2cOpenBus() failed: We don't seem to have i2c devices\n");
+                errno = EINVAL;
+                return -1;
+            }
+        }
+        if (i2cDebug > 0) printf("i2cOpenBus: %s device major number is %d\n", path, major(statinfo.st_rdev));
+        if (i2cMajor > 0 && major(statinfo.st_rdev) != i2cMajor)
+        {
+            if (i2cDebug >= 0) printf("i2cOpenBus: %s is not an i2c controller\n", path);
             errno = EINVAL;
             return -1;
         }
@@ -68,7 +108,7 @@ int i2cOpenBus(const char* path)
             int status = glob(path, GLOB_BRACE, NULL, &globinfo);
             if (status == GLOB_NOMATCH)
             {
-                if (i2cDebug >= 0) printf("i2cOpenBus: %s is no valid glob pattern\n", path);
+                if (i2cDebug >= 0) printf("i2cOpenBus: %s does not match anything\n", path);
                 errno = ENOENT;
                 return -1;
             }
