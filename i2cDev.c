@@ -60,7 +60,7 @@ int i2cDevRead(
     const char* user)
 {
     size_t i;
-    
+
     if (dlen == 0) return 0; /* any way to check online status ? */
     if (dlen > 2)
     {
@@ -176,7 +176,7 @@ int i2cDevConfigure(const char* name, const char* path, unsigned int address, co
     regDevice *device = NULL;
     unsigned int nmux = 0, n = 0;
     unsigned char muxid[255], muxcmd[255];
-    
+
     if (!name || !name[0] || !path || !path[0])
     {
         printf("usage: i2cDevConfigure name path device [maxreg]\n");
@@ -189,14 +189,14 @@ int i2cDevConfigure(const char* name, const char* path, unsigned int address, co
         if (*muxes != 0)
             fprintf(stderr, "rubish at end of line: %s\n", muxes);
     }
-    
+
     device = calloc(1, sizeof(regDevice) + nmux * sizeof(struct mux));
     if (!device)
     {
         perror("malloc regDevice");
         return -1;
     }
-    device->nmux = nmux;    
+    device->nmux = nmux;
     device->addr = address;
     device->fd = i2cOpen(path, address);
     if (device->fd == -1)
@@ -204,7 +204,7 @@ int i2cDevConfigure(const char* name, const char* path, unsigned int address, co
         perror("i2cOpen() failed");
         goto fail;
     }
-    
+
     for (n = 0; n < device->nmux; n++)
     {
         device->mux[n].addr = muxid[n];
