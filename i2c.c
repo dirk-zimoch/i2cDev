@@ -16,8 +16,8 @@
 #include <limits.h>
 #include <assert.h>
 
+#include <regDev.h>
 #include "i2c.h"
-#include "i2cDev.h"
 
 int i2cDebug = -1;
 
@@ -137,8 +137,15 @@ int i2cOpenBus(const char* path)
             if (i2cDebug > 0) printf("i2cOpenBus: open %s returned %d\n", filename, fd);
         }
     }
-    if (fd >= 0)
+    if (fd >= 0) {
+        if (ioctl(fd, I2C_TIMEOUT, 100) < 0)
+        {
+            if (i2cDebug >= 0) fprintf(stderr,
+                "i2cOpenBus(%s): ioctl I2C_TIMEOUT failed\n",
+                path);
+        }
         devinfo[fd].bus = busnum;
+    }
     return fd;
 }
 
@@ -171,7 +178,7 @@ int i2cOpen(const char* path, unsigned int address)
             return -1;
         }
     }
-    if (ioctl(fd, I2C_SLAVE_FORCE, address) < 0)
+    if (ioctl(fd, I2C_SLAVE_FORCE, address) < 0)  /* I2C_SLAVE_FORCE: use address even if a driver binds to it */
     {
         if (i2cDebug >= 0) fprintf(stderr,
             "i2cOpen(%s,0x%x): ioctl I2C_SLAVE_FORCE failed\n",
@@ -179,77 +186,82 @@ int i2cOpen(const char* path, unsigned int address)
         close(fd);
         return -1;
     }
-    if (ioctl(fd, I2C_TIMEOUT, 100) < 0)
-    {
-        if (i2cDebug >= 0) fprintf(stderr,
-            "i2cOpen(%s,0x%x): ioctl I2C_TIMEOUT failed\n",
-            path, address);
-    }
     devinfo[fd].dev = address;
     return fd;
 }
 
-int i2cRead(int fd, unsigned int command, unsigned int dlen, void* value)
+/* Keep i2cRead and i2cWrite only for backward compatibility (i2Dev no longer uses it) */
+
+int i2cRead(int fd, unsigned int offset, unsigned int dlen, void* value)
 {
     struct i2c_smbus_ioctl_data args;
-    union i2c_smbus_data data;
+    union i2c_smbus_data data = {0};
+
+    if (dlen < 1 || dlen > 32) {
+        if (i2cDebug >= 0) fprintf(stderr,
+            "i2cRead: invalid dlen %d (must be 1..32)\n", dlen);
+        return -1;
+    }
 
     args.read_write = I2C_SMBUS_READ;
-    args.size = 1 + dlen;
+    args.size = I2C_SMBUS_I2C_BLOCK_DATA;
     args.data = &data;
-    args.command = command;
+    args.command = offset;
+    data.block[0] = dlen;
+
     if (ioctl(fd, I2C_SMBUS, &args) < 0)
     {
         if (i2cDebug >= 0) fprintf(stderr,
-            "i2cRead: ioctl(fd=%d (%d-0x%02x), I2C_SMBUS, {I2C_SMBUS_READ, size=%u, command=0x%x}) failed: %m\n",
-            fd, devinfo[fd].bus, devinfo[fd].dev, args.size, args.command);
+            "i2cRead: ioctl(fd=%d (%d-0x%02x), I2C_SMBUS, {I2C_SMBUS_READ}) failed: %m\n",
+            fd, devinfo[fd].bus, devinfo[fd].dev);
         return -1;
     }
-    if (dlen == 1)
+    if (i2cDebug > 0)
     {
-        if (i2cDebug > 0) fprintf(stderr,
-            "i2cRead(fd=%d (%d-0x%02x), command=0x%x, dlen=%u byte) 0x%02x\n",
-            fd, devinfo[fd].bus, devinfo[fd].dev, command, dlen, data.byte);
-        *((uint8_t*) value) = data.byte;
+        fprintf(stderr,
+            "i2cRead(fd=%d (%d-0x%02x), command=0x%x, dlen=%u bytes",
+            fd, devinfo[fd].bus, devinfo[fd].dev, args.command, dlen);
+        for (dlen = 1; dlen <= data.block[0]; dlen++) fprintf(stderr," 0x%02x", data.block[dlen]);
+        fprintf(stderr,")\n");
     }
-    else
-    {
-        if (i2cDebug > 0) fprintf(stderr,
-            "i2cRead(fd=%d (%d-0x%02x), command=0x%x, dlen=%u bytes) 0x%04x\n",
-            fd, devinfo[fd].bus, devinfo[fd].dev, command, dlen, data.word);
-        *((uint16_t*) value) = data.word;
-    }
+    regDevCopy(dlen, 1, data.block+1, value, NULL, REGDEV_SWAP_FROM_LE);
     return 0;
 }
 
-int i2cWrite(int fd, unsigned int command, unsigned int dlen, int value)
+int i2cWrite(int fd, unsigned int offset, unsigned int dlen, int value)
 {
     struct i2c_smbus_ioctl_data args;
     union i2c_smbus_data data;
 
-    args.read_write = I2C_SMBUS_WRITE;
-    args.size = 1 + dlen;
-    args.data = &data;
-    args.command = command;
-    if (dlen == 1)
-    {
-        data.byte = value;
-        if (i2cDebug > 0) fprintf(stderr,
-            "i2cWrite(fd=%d (%d-0x%02x), command=0x%x, dlen=%u byte, value=0x%02x)\n",
-            fd, devinfo[fd].bus, devinfo[fd].dev, command, dlen, data.byte);
+    if (dlen < 1 || dlen > 4) {
+        if (i2cDebug >= 0) fprintf(stderr,
+            "i2cWrite: invalid dlen %d (must be 1..4)\n", dlen);
+        return -1;
     }
-    if (dlen == 2)
+
+    args.read_write = I2C_SMBUS_WRITE;
+    args.size = I2C_SMBUS_I2C_BLOCK_DATA;
+    args.data = &data;
+    args.command = offset;
+    data.block[0] = dlen;
+    data.block[1] = value & 0xff;
+    data.block[2] = (value >> 8) & 0xff;
+    data.block[3] = (value >> 16) & 0xff;
+    data.block[4] = (value >> 24) & 0xff;
+
+    if (i2cDebug > 0)
     {
-        data.word = value;
-        if (i2cDebug > 0) fprintf(stderr,
-            "i2cWrite(fd=%d (%d-0x%02x), command=0x%x, dlen=%u bytes, value=0x%04x)\n",
-            fd, devinfo[fd].bus, devinfo[fd].dev, command, dlen, data.word);
+        fprintf(stderr,
+            "i2cWrite(fd=%d (%d-0x%02x), command=0x%x, dlen=%u bytes",
+            fd, devinfo[fd].bus, devinfo[fd].dev, args.command, dlen);
+        for (dlen = 1; dlen <= data.block[0]; dlen++) fprintf(stderr," 0x%02x", data.block[dlen]);
+        fprintf(stderr,")\n");
     }
     if (ioctl(fd, I2C_SMBUS, &args) < 0)
     {
         if (i2cDebug >= 0) fprintf(stderr,
-            "i2cWrite: ioctl(fd=%d (%d-0x%02x), I2C_SMBUS, {I2C_SMBUS_WRITE, size=%u, command=0x%x}) failed: %m\n",
-            fd, devinfo[fd].bus, devinfo[fd].dev, args.size, args.command);
+            "i2cWrite: ioctl(fd=%d (%d-0x%02x), I2C_SMBUS, {I2C_SMBUS_WRITE}) failed: %m\n",
+            fd, devinfo[fd].bus, devinfo[fd].dev);
         return -1;
     }
     return 0;
